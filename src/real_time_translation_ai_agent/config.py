@@ -36,10 +36,14 @@ class Settings(BaseSettings):
     default_target_label: str = Field(default='Spanish', alias='DEFAULT_TARGET_LABEL')
     default_voice: str = Field(default='alloy', alias='DEFAULT_VOICE')
 
+    use_local_webhook: bool = Field(default=True, alias='USE_LOCAL_WEBHOOK')
+    local_webhook_path: str = Field(default='/internal/translation-webhook', alias='LOCAL_WEBHOOK_PATH')
     translation_webhook_url: Optional[str] = Field(default=None, alias='TRANSLATION_WEBHOOK_URL')
     translation_webhook_auth_header: Optional[str] = Field(default=None, alias='TRANSLATION_WEBHOOK_AUTH_HEADER')
 
     debug: bool = Field(default=True, alias='DEBUG')
+    log_level: str = Field(default='INFO', alias='LOG_LEVEL')
+    log_format: str = Field(default='pretty', alias='LOG_FORMAT')
 
 
 @lru_cache(maxsize=1)

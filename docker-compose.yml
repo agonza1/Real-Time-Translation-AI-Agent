@@ -1,0 +1,18 @@
+services:
+  translation-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: real-time-translation-ai-agent
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      USE_LOCAL_WEBHOOK: "true"
+      TRANSLATION_WEBHOOK_URL: http://translation-agent:3000/internal/translation-webhook
+      LOG_LEVEL: INFO
+      LOG_FORMAT: pretty
+    restart: unless-stopped

@@ -6,6 +6,7 @@ from signalwire_agents import AgentBase
 from signalwire_agents.core.function_result import SwaigFunctionResult
 
 from .config import get_settings
+from .logging_utils import get_logger
 from .translation import TranslationRouter
 
 
@@ -23,6 +24,7 @@ class LiveTranslationAgent(AgentBase):
         )
 
         self.settings = settings
+        self.logx = get_logger('live_translation_agent', component='agent')
         self.translation_router = TranslationRouter(
             webhook_url=settings.translation_webhook_url,
             auth_header=settings.translation_webhook_auth_header,
@@ -64,36 +66,27 @@ class LiveTranslationAgent(AgentBase):
             model=settings.llm_model,
         )
 
+        self.logx.info(
+            'agent_initialized',
+            extra={
+                'default_source_language': settings.default_source_language,
+                'default_target_language': settings.default_target_language,
+                'use_local_webhook': settings.use_local_webhook,
+            },
+        )
+
     @AgentBase.tool(
         name='route_translation_call',
         description='Route an incoming call into the live translation workflow using the selected source and target languages.',
         parameters={
             'type': 'object',
             'properties': {
-                'source_language': {
-                    'type': 'string',
-                    'description': 'BCP-47 or locale code for the source language, e.g. en-US',
-                },
-                'target_language': {
-                    'type': 'string',
-                    'description': 'BCP-47 or locale code for the target language, e.g. es-ES',
-                },
-                'source_language_label': {
-                    'type': 'string',
-                    'description': 'Human readable source language label',
-                },
-                'target_language_label': {
-                    'type': 'string',
-                    'description': 'Human readable target language label',
-                },
-                'caller_number': {
-                    'type': 'string',
-                    'description': 'Caller phone number if available',
-                },
-                'call_id': {
-                    'type': 'string',
-                    'description': 'Current SignalWire call identifier if available',
-                },
+                'source_language': {'type': 'string'},
+                'target_language': {'type': 'string'},
+                'source_language_label': {'type': 'string'},
+                'target_language_label': {'type': 'string'},
+                'caller_number': {'type': 'string'},
+                'call_id': {'type': 'string'},
             },
             'required': ['target_language'],
         },
@@ -113,7 +106,19 @@ class LiveTranslationAgent(AgentBase):
             'caller_number': args.get('caller_number'),
             'call_id': args.get('call_id') or (raw_data or {}).get('call_id'),
             'signalwire_context': settings.signalwire_context,
+            'metadata': {
+                'raw_data_present': bool(raw_data),
+            },
         }
+
+        self.logx.info(
+            'routing_translation_call',
+            extra={
+                'source_language': payload['source_language'],
+                'target_language': payload['target_language'],
+                'call_id': payload['call_id'],
+            },
+        )
 
         decision = self.translation_router.route_translation(payload)
         message = decision.get('message') or (

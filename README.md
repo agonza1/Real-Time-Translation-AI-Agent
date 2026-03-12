@@ -2,28 +2,35 @@
 
 Real-time translation AI agent orchestrator built with Python, `uv`, FastAPI, and the SignalWire Agents SDK.
 
-## What this MVP does
+## MVP shape
+
+For the MVP, everything runs in one backend service:
+
+- SignalWire-facing agent endpoint
+- local webhook decision logic inside the same backend
+- routing/orchestration logic
+- structured logs
+
+This keeps the first demo simple while preserving a clean contract for splitting services later.
+
+## What this app does
 
 - exposes a SignalWire-compatible agent endpoint
 - answers incoming calls through SignalWire Agents SDK
 - confirms source and target languages
 - triggers a translation-routing tool (`route_translation_call`)
-- optionally forwards routing decisions to your own translation webhook/orchestrator
-- exposes health and metadata endpoints for local testing
+- calls local in-process webhook logic for routing decisions by default
+- can later call an external webhook without changing the SignalWire-facing contract
+- logs routing decisions clearly for debugging/demo purposes
 
-## Architecture
+## Endpoints
 
-SignalWire handles telephony, media, and AI runtime plumbing.
-This app focuses on orchestration:
+- `GET /health`
+- `GET /ready`
+- `GET /` → SWML document (basic auth required)
+- `POST /swaig` → SWAIG tool calls (basic auth required)
 
-1. SignalWire sends the incoming call to this agent.
-2. The agent gathers or confirms translation intent.
-3. The `route_translation_call` tool decides how to route translation.
-4. The tool either:
-   - uses a local fallback decision, or
-   - POSTs to `TRANSLATION_WEBHOOK_URL` for custom orchestration.
-
-## Quick start
+## Local development
 
 ```bash
 uv sync
@@ -31,32 +38,24 @@ cp .env.example .env
 uv run python -m real_time_translation_ai_agent.main
 ```
 
-Server defaults to `http://localhost:3000`.
+## Docker Compose
 
-Useful endpoints:
+```bash
+cp .env.example .env
+docker compose up --build
+```
 
-- `GET /health`
-- `GET /ready`
-- `GET /` → SWML document (basic auth required)
-- `POST /swaig` → SWAIG tool calls (basic auth required)
+That runs the whole MVP backend on port `3000`.
 
-## Environment variables
+## Example calls
 
-At minimum, set:
+### Fetch SWML
 
-- `OPENAI_API_KEY` or another LLM provider key supported by your SignalWire setup
-- `SIGNALWIRE_SPACE`
-- `SIGNALWIRE_PROJECT`
-- `SIGNALWIRE_TOKEN`
+```bash
+curl -s -u signalwire:dev-password-change-me http://localhost:3000/ | jq
+```
 
-Optional:
-
-- `SWML_BASIC_AUTH_USER` and `SWML_BASIC_AUTH_PASSWORD` for the SignalWire-facing endpoints
-- `TRANSLATION_WEBHOOK_URL` to hand routing off to your own orchestration service
-- `PUBLIC_BASE_URL` if you want a stable externally reachable URL
-- language defaults for the first demo
-
-## Example local tool call
+### Call SWAIG routing tool
 
 ```bash
 curl -s http://localhost:3000/swaig \
@@ -64,14 +63,26 @@ curl -s http://localhost:3000/swaig \
   -H 'content-type: application/json' \
   -d '{
     "function": "route_translation_call",
+    "call_id": "demo-call-123",
     "argument": {"raw": "{\"source_language\":\"en-US\",\"target_language\":\"es-ES\"}"}
   }' | jq
 ```
 
-## Next recommended steps
+## Logging
 
-- wire this endpoint to a SignalWire number / context
-- add a real translation webhook implementation
-- persist call/session state
-- add transcript logging and demo UI
-- record an end-to-end demo once credentials are loaded
+Supported log env vars:
+
+- `LOG_LEVEL=DEBUG|INFO|WARNING|ERROR`
+- `LOG_FORMAT=pretty|json`
+
+`pretty` is nicer for local development.
+`json` is better for ingestion in hosted environments.
+
+## Architecture note
+
+Current recommendation for MVP:
+
+- SignalWire handles call/media infra
+- this service handles orchestration
+- the translation routing contract currently lives as local in-process webhook logic
+- later we can move that same contract into a separate HTTP webhook service if needed
