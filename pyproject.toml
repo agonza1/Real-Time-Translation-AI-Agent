@@ -1,0 +1,21 @@
+[project]
+name = "real-time-translation-ai-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.128.8",
+    "httpx>=0.28.1",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.11.0",
+    "signalwire-agents>=1.0.18",
+    "uvicorn>=0.39.0",
+]
+
+[project.scripts]
+real-time-translation-ai-agent = "real_time_translation_ai_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.10.9,<0.11.0"]
+build-backend = "uv_build"
