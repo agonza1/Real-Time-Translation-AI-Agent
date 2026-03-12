@@ -25,8 +25,9 @@ class LiveTranslationAgent(AgentBase):
 
         self.settings = settings
         self.logx = get_logger('live_translation_agent', component='agent')
+        webhook_url = None if settings.use_local_webhook else settings.translation_webhook_url
         self.translation_router = TranslationRouter(
-            webhook_url=settings.translation_webhook_url,
+            webhook_url=webhook_url,
             auth_header=settings.translation_webhook_auth_header,
         )
 
@@ -72,6 +73,7 @@ class LiveTranslationAgent(AgentBase):
                 'default_source_language': settings.default_source_language,
                 'default_target_language': settings.default_target_language,
                 'use_local_webhook': settings.use_local_webhook,
+                'external_webhook_enabled': bool(webhook_url),
             },
         )
 
