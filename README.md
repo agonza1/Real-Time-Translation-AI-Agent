@@ -10,6 +10,7 @@ For the MVP, everything runs in one backend service:
 - local webhook decision logic inside the same backend
 - routing/orchestration logic
 - structured logs
+- optional ngrok tunnel via Docker Compose
 
 This keeps the first demo simple while preserving a clean contract for splitting services later.
 
@@ -42,10 +43,21 @@ uv run python -m real_time_translation_ai_agent.main
 
 ```bash
 cp .env.example .env
+# fill in SIGNALWIRE_TOKEN and NGROK_AUTHTOKEN
 docker compose up --build
 ```
 
-That runs the whole MVP backend on port `3000`.
+That starts:
+- the backend on port `3000`
+- ngrok on port `4040` for the local inspection API
+
+To inspect the public ngrok URL:
+
+```bash
+curl -s http://localhost:4040/api/tunnels | jq
+```
+
+Use the resulting `https://...ngrok...` URL as the public base URL for SignalWire.
 
 ## Example calls
 
@@ -77,6 +89,20 @@ Supported log env vars:
 
 `pretty` is nicer for local development.
 `json` is better for ingestion in hosted environments.
+
+## Recommended MVP env
+
+```env
+SIGNALWIRE_SPACE=webrtcventures.signalwire.com
+SIGNALWIRE_PROJECT=3e85ab51-d514-409d-bfcd-211997ae7fbb
+SIGNALWIRE_TOKEN=...
+SWML_BASIC_AUTH_USER=signalwire
+SWML_BASIC_AUTH_PASSWORD=<strong-password>
+NGROK_AUTHTOKEN=...
+USE_LOCAL_WEBHOOK=true
+DEFAULT_SOURCE_LANGUAGE=en-US
+DEFAULT_TARGET_LANGUAGE=es-ES
+```
 
 ## Architecture note
 

@@ -12,7 +12,18 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       USE_LOCAL_WEBHOOK: "true"
-      TRANSLATION_WEBHOOK_URL: http://translation-agent:3000/internal/translation-webhook
       LOG_LEVEL: INFO
       LOG_FORMAT: pretty
+    restart: unless-stopped
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: real-time-translation-ai-agent-ngrok
+    depends_on:
+      - translation-agent
+    command: ["http", "translation-agent:3000"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    ports:
+      - "4040:4040"
     restart: unless-stopped
