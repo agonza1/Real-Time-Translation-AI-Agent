@@ -14,6 +14,28 @@ For the MVP, everything runs in one backend service:
 
 This keeps the first demo simple while preserving a clean contract for splitting services later.
 
+## High-level flow
+
+```mermaid
+flowchart TD
+    A[Caller dials SignalWire number] --> B[SignalWire invokes agent endpoint]
+    B --> C[Translation Agent / FastAPI app]
+    C --> D[Agent confirms source/target languages]
+    D --> E[route_translation_call tool]
+    E --> F{USE_LOCAL_WEBHOOK?}
+    F -->|yes| G[Local routing logic in same app]
+    F -->|no| H[External translation webhook]
+    G --> I[Translation decision returned]
+    H --> I
+    I --> J[SWAIG action + global data set]
+    J --> K[SignalWire continues call flow]
+
+    L[ngrok public URL] --> B
+    M[Docker Compose] --> C
+    M --> L
+```
+```
+
 ## What this app does
 
 - exposes a SignalWire-compatible agent endpoint
