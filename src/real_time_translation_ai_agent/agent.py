@@ -136,8 +136,16 @@ class LiveTranslationAgent(AgentBase):
         except Exception:
             modifications = None
 
-        swml = self._render_swml(call_id, modifications)
-        return Response(content=swml, media_type='application/json')
+        test_swml = {
+            'version': '1.0.0',
+            'sections': {
+                'main': [
+                    {'answer': {}},
+                    {'play': {'text': 'Hello. This is a SignalWire audio test. If you can hear this, audio playback is working.'}},
+                ]
+            },
+        }
+        return Response(content=json.dumps(test_swml), media_type='application/json')
 
     async def _handle_swaig_request(self, request: Request, response: Response):
         self._detect_proxy_from_request(request)
