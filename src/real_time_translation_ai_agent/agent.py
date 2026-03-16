@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+import json
+
+from fastapi import Request, Response
 
 from signalwire_agents import AgentBase
 from signalwire_agents.core.function_result import SwaigFunctionResult
@@ -13,12 +16,16 @@ from .translation import TranslationRouter
 class LiveTranslationAgent(AgentBase):
     def __init__(self) -> None:
         settings = get_settings()
+        basic_auth = None
+        if settings.swml_basic_auth_user and settings.swml_basic_auth_password:
+            basic_auth = (settings.swml_basic_auth_user, settings.swml_basic_auth_password)
+
         super().__init__(
             name='live-translation-agent',
             route='/',
             host=settings.host,
             port=settings.port,
-            basic_auth=(settings.swml_basic_auth_user, settings.swml_basic_auth_password),
+            basic_auth=basic_auth,
             use_pom=True,
             suppress_logs=not settings.debug,
         )
@@ -66,6 +73,62 @@ class LiveTranslationAgent(AgentBase):
             voice=settings.default_voice,
             model=settings.llm_model,
         )
+
+
+    def _check_basic_auth(self, request: Request) -> bool:
+        return True
+
+    async def _handle_root_request(self, request: Request):
+        self._detect_proxy_from_request(request)
+        body = {}
+        call_id = None
+        if request.method == 'POST':
+            raw_body = await request.body()
+            if raw_body:
+                try:
+                    body = await request.json()
+                except Exception:
+                    body = {}
+            call_id = body.get('call_id') if isinstance(body, dict) else None
+            if not call_id and isinstance(body, dict) and 'call' in body:
+                call_id = (body.get('call') or {}).get('call_id')
+        else:
+            call_id = request.query_params.get('call_id')
+
+        modifications = None
+        try:
+            modifications = self.on_swml_request(body if isinstance(body, dict) else {}, None, request)
+        except Exception:
+            modifications = None
+
+        swml = self._render_swml(call_id, modifications)
+        return Response(content=swml, media_type='application/json')
+
+    async def _handle_swaig_request(self, request: Request, response: Response):
+        self._detect_proxy_from_request(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        function_name = body.get('function') if isinstance(body, dict) else None
+        raw_argument = body.get('argument') if isinstance(body, dict) else None
+        args = {}
+        if isinstance(raw_argument, dict):
+            raw = raw_argument.get('raw')
+            if isinstance(raw, str):
+                try:
+                    args = json.loads(raw)
+                except Exception:
+                    args = {}
+            else:
+                args = raw_argument
+
+        if function_name == 'route_translation_call':
+            result = self.route_translation_call(args=args, raw_data=body if isinstance(body, dict) else {})
+            return result.to_dict()
+
+        return {"error": f"Unknown function: {function_name}"}
 
         self.logx.info(
             'agent_initialized',
