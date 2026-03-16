@@ -79,8 +79,19 @@ class LiveTranslationAgent(AgentBase):
             voice=settings.default_voice,
             model=settings.llm_model,
         )
+        self.set_post_prompt(
+            'Hello, this is the live translation assistant. What language do you need today?'
+        )
 
-
+        self.logx.info(
+            'agent_initialized',
+            extra={
+                'default_source_language': settings.default_source_language,
+                'default_target_language': settings.default_target_language,
+                'use_local_webhook': settings.use_local_webhook,
+                'external_webhook_enabled': bool(webhook_url),
+            },
+        )
 
     def _build_webhook_url(self, endpoint: str, query_params=None):
         base = self.settings.public_base_url or getattr(self, '_proxy_url_base', None)
@@ -153,25 +164,34 @@ class LiveTranslationAgent(AgentBase):
             else:
                 args = raw_argument
 
+        if function_name == 'startup_hook':
+            result = self.startup_hook(args=args, raw_data=body if isinstance(body, dict) else {})
+            return result.to_dict()
+
         if function_name == 'route_translation_call':
             result = self.route_translation_call(args=args, raw_data=body if isinstance(body, dict) else {})
             return result.to_dict()
 
         return {"error": f"Unknown function: {function_name}"}
 
-        self.set_post_prompt(
-            'Hello, this is the live translation assistant. What language do you need today?'
-        )
-
-        self.logx.info(
-            'agent_initialized',
-            extra={
-                'default_source_language': settings.default_source_language,
-                'default_target_language': settings.default_target_language,
-                'use_local_webhook': settings.use_local_webhook,
-                'external_webhook_enabled': bool(webhook_url),
-            },
-        )
+    @AgentBase.tool(
+        name='startup_hook',
+        description='Runs when the call starts so the agent speaks first and begins interaction.',
+        parameters={
+            'type': 'object',
+            'properties': {},
+        },
+    )
+    def startup_hook(
+        self,
+        args: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None,
+    ) -> SwaigFunctionResult:
+        result = SwaigFunctionResult('Hello, this is the live translation assistant. What language do you need today?')
+        result.say('Hello, this is the live translation assistant. What language do you need today?')
+        result.wait_for_user(enabled=True)
+        result.set_end_of_speech_timeout(500)
+        return result
 
     @AgentBase.tool(
         name='route_translation_call',
