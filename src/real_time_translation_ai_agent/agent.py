@@ -75,6 +75,19 @@ class LiveTranslationAgent(AgentBase):
         )
 
 
+
+    def _build_webhook_url(self, endpoint: str, query_params=None):
+        base = self.settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        if base:
+            base = base.rstrip('/')
+            endpoint = endpoint.strip('/')
+            url = f"{base}/{endpoint}/"
+            if query_params:
+                from urllib.parse import urlencode
+                url += '?' + urlencode(query_params)
+            return url
+        return super()._build_webhook_url(endpoint, query_params)
+
     def _check_basic_auth(self, request: Request) -> bool:
         return True
 
@@ -85,8 +98,6 @@ class LiveTranslationAgent(AgentBase):
         if public_base:
             public_base = public_base.rstrip('/')
             self._proxy_url_base = public_base
-            if hasattr(self, '_basic_auth'):
-                self._basic_auth = None
         body = {}
         call_id = None
         if request.method == 'POST':
@@ -118,8 +129,6 @@ class LiveTranslationAgent(AgentBase):
         if public_base:
             public_base = public_base.rstrip('/')
             self._proxy_url_base = public_base
-            if hasattr(self, '_basic_auth'):
-                self._basic_auth = None
         try:
             body = await request.json()
         except Exception:
