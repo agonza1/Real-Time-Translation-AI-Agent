@@ -50,7 +50,8 @@ class LiveTranslationAgent(AgentBase):
             'Behavior',
             (
                 'Be concise. Confirm languages clearly. If the user asks for translation, '
-                'use the route_translation_call tool. If the request is ambiguous, ask a short clarifying question.'
+                'use the route_translation_call tool. If the request is ambiguous, ask a short clarifying question. '
+                'Start speaking immediately when the call is answered with a short greeting and ask what language the caller needs.'
             ),
         )
         self.prompt_add_section(
@@ -60,6 +61,11 @@ class LiveTranslationAgent(AgentBase):
                 f"Default target language: {settings.default_target_label} ({settings.default_target_language})."
             ),
         )
+
+        self.set_params({
+            'wait_for_user': False,
+            'end_of_speech_timeout': 500,
+        })
 
         self.add_language(
             name=settings.default_source_label,
@@ -152,6 +158,10 @@ class LiveTranslationAgent(AgentBase):
             return result.to_dict()
 
         return {"error": f"Unknown function: {function_name}"}
+
+        self.set_post_prompt(
+            'Hello, this is the live translation assistant. What language do you need today?'
+        )
 
         self.logx.info(
             'agent_initialized',
