@@ -80,6 +80,13 @@ class LiveTranslationAgent(AgentBase):
 
     async def _handle_root_request(self, request: Request):
         self._detect_proxy_from_request(request)
+        settings = self.settings
+        public_base = settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        if public_base:
+            public_base = public_base.rstrip('/')
+            self._proxy_url_base = public_base
+            if hasattr(self, '_basic_auth'):
+                self._basic_auth = None
         body = {}
         call_id = None
         if request.method == 'POST':
@@ -106,6 +113,13 @@ class LiveTranslationAgent(AgentBase):
 
     async def _handle_swaig_request(self, request: Request, response: Response):
         self._detect_proxy_from_request(request)
+        settings = self.settings
+        public_base = settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        if public_base:
+            public_base = public_base.rstrip('/')
+            self._proxy_url_base = public_base
+            if hasattr(self, '_basic_auth'):
+                self._basic_auth = None
         try:
             body = await request.json()
         except Exception:
