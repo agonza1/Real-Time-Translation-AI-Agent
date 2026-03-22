@@ -141,7 +141,7 @@ class LiveTranslationAgent(AgentBase):
             'sections': {
                 'main': [
                     {'answer': {}},
-                    {'play': {'text': 'Hello. This is a SignalWire audio test. If you can hear this, audio playback is working.'}},
+                    {'tts': {'text': 'Hello. This is a SignalWire audio test. If you can hear this, audio playback is working.'}},
                 ]
             },
         }
