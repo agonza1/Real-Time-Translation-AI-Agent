@@ -80,7 +80,7 @@ class LiveTranslationAgent(AgentBase):
             model=settings.llm_model,
         )
         self.set_post_prompt(
-            'Hello, this is the live translation assistant. What language do you need today?'
+            'Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.'
         )
 
         self.logx.info(
@@ -110,38 +110,10 @@ class LiveTranslationAgent(AgentBase):
 
     async def _handle_root_request(self, request: Request):
         self._detect_proxy_from_request(request)
-        settings = self.settings
-        public_base = settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        public_base = self.settings.public_base_url or getattr(self, '_proxy_url_base', None)
         if public_base:
-            public_base = public_base.rstrip('/')
-            self._proxy_url_base = public_base
-        body = {}
-        call_id = None
-        if request.method == 'POST':
-            raw_body = await request.body()
-            if raw_body:
-                try:
-                    body = await request.json()
-                except Exception:
-                    body = {}
-            call_id = body.get('call_id') if isinstance(body, dict) else None
-            if not call_id and isinstance(body, dict) and 'call' in body:
-                call_id = (body.get('call') or {}).get('call_id')
-        else:
-            call_id = request.query_params.get('call_id')
-
-        modifications = None
-        try:
-            modifications = self.on_swml_request(body if isinstance(body, dict) else {}, None, request)
-        except Exception:
-            modifications = None
-
-        laml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say>Hello, this is the live translation assistant. What language do you need today?</Say>
-  <Pause length="1"/>
-</Response>'''
-        return Response(content=laml, media_type='application/xml')
+            self._proxy_url_base = public_base.rstrip('/')
+        return await super()._handle_request(request, Response())
 
     async def _handle_swaig_request(self, request: Request, response: Response):
         self._detect_proxy_from_request(request)
@@ -191,8 +163,8 @@ class LiveTranslationAgent(AgentBase):
         args: Optional[Dict[str, Any]] = None,
         raw_data: Optional[Dict[str, Any]] = None,
     ) -> SwaigFunctionResult:
-        result = SwaigFunctionResult('Hello, this is the live translation assistant. What language do you need today?')
-        result.say('Hello, this is the live translation assistant. What language do you need today?')
+        result = SwaigFunctionResult('Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.')
+        result.say('Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.')
         result.wait_for_user(enabled=True)
         result.set_end_of_speech_timeout(500)
         return result
