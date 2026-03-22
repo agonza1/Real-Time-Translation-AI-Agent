@@ -136,16 +136,12 @@ class LiveTranslationAgent(AgentBase):
         except Exception:
             modifications = None
 
-        test_swml = {
-            'version': '1.0.0',
-            'sections': {
-                'main': [
-                    {'answer': {}},
-                    {'tts': {'text': 'Hello. This is a SignalWire audio test. If you can hear this, audio playback is working.'}},
-                ]
-            },
-        }
-        return Response(content=json.dumps(test_swml), media_type='application/json')
+        laml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>Hello, this is the live translation assistant. What language do you need today?</Say>
+  <Pause length="1"/>
+</Response>'''
+        return Response(content=laml, media_type='application/xml')
 
     async def _handle_swaig_request(self, request: Request, response: Response):
         self._detect_proxy_from_request(request)
