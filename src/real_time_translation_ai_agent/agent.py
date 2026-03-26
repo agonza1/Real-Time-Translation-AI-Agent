@@ -41,24 +41,31 @@ class LiveTranslationAgent(AgentBase):
         self.prompt_add_section(
             'Role',
             (
-                'You are a live call translation orchestrator. '
-                'You help detect the caller translation need, confirm source and target languages, '
-                'and trigger the translation routing workflow as quickly as possible.'
+                'You are a voice AI translator for phone calls. Your primary job is to help an English-speaking caller '
+                'communicate in Spanish during a live call.'
             ),
         )
         self.prompt_add_section(
             'Behavior',
             (
-                'Be concise. Confirm languages clearly. If the user asks for translation, '
-                'use the route_translation_call tool. If the request is ambiguous, ask a short clarifying question. '
-                'Start speaking immediately when the call is answered with a short greeting and ask what language the caller needs.'
+                'When the call begins, greet the caller briefly, explain that this is an English to Spanish translation service, '
+                'and invite them to speak in English. Translate what they say into natural Spanish. Preserve meaning, intent, '
+                'and tone. Do not add unnecessary commentary. Be brief, clear, and conversational like a real phone interpreter.'
+            ),
+        )
+        self.prompt_add_section(
+            'Tool Use',
+            (
+                'Use the route_translation_call tool when you need to initialize or confirm the translation direction and call routing '
+                'metadata. If the caller asks for a different language pair, clarify it in one short question and then use the tool.'
             ),
         )
         self.prompt_add_section(
             'Defaults',
             (
                 f"Default source language: {settings.default_source_label} ({settings.default_source_language}). "
-                f"Default target language: {settings.default_target_label} ({settings.default_target_language})."
+                f"Default target language: {settings.default_target_label} ({settings.default_target_language}). "
+                'Assume English to Spanish unless the caller clearly asks for something else.'
             ),
         )
 
@@ -80,7 +87,7 @@ class LiveTranslationAgent(AgentBase):
             model=settings.llm_model,
         )
         self.set_post_prompt(
-            'Hello, this is the live translation assistant. What language do you need today?'
+            'Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.'
         )
 
         self.logx.info(
@@ -110,42 +117,23 @@ class LiveTranslationAgent(AgentBase):
 
     async def _handle_root_request(self, request: Request):
         self._detect_proxy_from_request(request)
-        settings = self.settings
-        public_base = settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        public_base = self.settings.public_base_url or getattr(self, '_proxy_url_base', None)
         if public_base:
-            public_base = public_base.rstrip('/')
-            self._proxy_url_base = public_base
+            self._proxy_url_base = public_base.rstrip('/')
+
         body = {}
-        call_id = None
         if request.method == 'POST':
-            raw_body = await request.body()
-            if raw_body:
-                try:
-                    body = await request.json()
-                except Exception:
-                    body = {}
-            call_id = body.get('call_id') if isinstance(body, dict) else None
-            if not call_id and isinstance(body, dict) and 'call' in body:
-                call_id = (body.get('call') or {}).get('call_id')
-        else:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+
+        call_id = body.get('call_id') if isinstance(body, dict) else None
+        if not call_id:
             call_id = request.query_params.get('call_id')
 
-        modifications = None
-        try:
-            modifications = self.on_swml_request(body if isinstance(body, dict) else {}, None, request)
-        except Exception:
-            modifications = None
-
-        test_swml = {
-            'version': '1.0.0',
-            'sections': {
-                'main': [
-                    {'answer': {}},
-                    {'tts': {'text': 'Hello. This is a SignalWire audio test. If you can hear this, audio playback is working.'}},
-                ]
-            },
-        }
-        return Response(content=json.dumps(test_swml), media_type='application/json')
+        swml = self._render_swml(call_id=call_id)
+        return Response(content=swml, media_type='application/json')
 
     async def _handle_swaig_request(self, request: Request, response: Response):
         self._detect_proxy_from_request(request)
@@ -195,8 +183,8 @@ class LiveTranslationAgent(AgentBase):
         args: Optional[Dict[str, Any]] = None,
         raw_data: Optional[Dict[str, Any]] = None,
     ) -> SwaigFunctionResult:
-        result = SwaigFunctionResult('Hello, this is the live translation assistant. What language do you need today?')
-        result.say('Hello, this is the live translation assistant. What language do you need today?')
+        result = SwaigFunctionResult('Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.')
+        result.say('Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.')
         result.wait_for_user(enabled=True)
         result.set_end_of_speech_timeout(500)
         return result

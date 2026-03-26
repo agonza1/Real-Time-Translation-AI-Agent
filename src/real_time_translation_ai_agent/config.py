@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     app_name: str = 'Real-Time-Translation-AI-Agent'
     environment: str = Field(default='development', alias='ENVIRONMENT')
     host: str = Field(default='0.0.0.0', alias='HOST')
-    port: int = Field(default=3000, alias='PORT')
+    port: int = Field(default=3011, alias='PORT')
     public_base_url: Optional[str] = Field(default=None, alias='PUBLIC_BASE_URL')
 
     signalwire_space: Optional[str] = Field(default=None, alias='SIGNALWIRE_SPACE')
