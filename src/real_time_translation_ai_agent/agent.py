@@ -77,14 +77,12 @@ class LiveTranslationAgent(AgentBase):
         self.add_language(
             name=settings.default_source_label,
             code=settings.default_source_language,
-            voice=settings.default_voice,
-            model=settings.llm_model,
+            voice='Polly.Joanna',
         )
         self.add_language(
             name=settings.default_target_label,
             code=settings.default_target_language,
-            voice=settings.default_voice,
-            model=settings.llm_model,
+            voice='Polly.Lupe',
         )
         self.add_post_answer_verb(
             'play',
