@@ -5,12 +5,12 @@ services:
       dockerfile: Dockerfile
     container_name: real-time-translation-ai-agent
     ports:
-      - "3000:3000"
+      - "3001:3000"
     env_file:
       - .env
     environment:
       HOST: 0.0.0.0
-      PORT: 3000
+      PORT: 3001
       USE_LOCAL_WEBHOOK: "true"
       LOG_LEVEL: INFO
       LOG_FORMAT: pretty
@@ -21,7 +21,7 @@ services:
     container_name: real-time-translation-ai-agent-ngrok
     depends_on:
       - translation-agent
-    command: ["http", "translation-agent:3000"]
+    command: ["http", "translation-agent:3001"]
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
     ports:
