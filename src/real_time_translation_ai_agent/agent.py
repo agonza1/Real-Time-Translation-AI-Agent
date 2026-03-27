@@ -86,6 +86,15 @@ class LiveTranslationAgent(AgentBase):
             voice=settings.default_voice,
             model=settings.llm_model,
         )
+        self.add_post_answer_verb(
+            'play',
+            {
+                'url': 'say:Welcome to the English to Spanish translation line. Please say something in English after the tone.',
+                'say_voice': 'Polly.Joanna',
+                'say_language': 'en-US'
+            }
+        )
+
         self.set_post_prompt(
             'Welcome to the English to Spanish translation line. After the tone, say something in English.'
         )
