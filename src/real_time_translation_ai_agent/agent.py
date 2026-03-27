@@ -70,8 +70,8 @@ class LiveTranslationAgent(AgentBase):
         )
 
         self.set_params({
-            'wait_for_user': False,
-            'end_of_speech_timeout': 500,
+            'wait_for_user': True,
+            'end_of_speech_timeout': 1000,
         })
 
         self.add_language(
@@ -87,7 +87,7 @@ class LiveTranslationAgent(AgentBase):
             model=settings.llm_model,
         )
         self.set_post_prompt(
-            'Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.'
+            'Welcome to the English to Spanish translation line. After the tone, say something in English.'
         )
 
         self.logx.info(
@@ -183,10 +183,10 @@ class LiveTranslationAgent(AgentBase):
         args: Optional[Dict[str, Any]] = None,
         raw_data: Optional[Dict[str, Any]] = None,
     ) -> SwaigFunctionResult:
-        result = SwaigFunctionResult('Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.')
-        result.say('Hello. This is an English to Spanish translator service. Speak in English, and I will translate your words into Spanish.')
+        result = SwaigFunctionResult('Welcome to the English to Spanish translation line. Please say something in English after the tone.')
+        result.say('Welcome to the English to Spanish translation line. Please say something in English after the tone.')
         result.wait_for_user(enabled=True)
-        result.set_end_of_speech_timeout(500)
+        result.set_end_of_speech_timeout(1000)
         return result
 
     @AgentBase.tool(
