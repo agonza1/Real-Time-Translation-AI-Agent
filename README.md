@@ -52,6 +52,9 @@ flowchart TD
 - `GET /` and `POST /` → SDK-generated SWML entrypoint for inbound SignalWire traffic
 - `GET /sip` and `POST /sip` → same SDK-generated SWML entrypoint, used by the LaML compatibility shim
 - `GET /laml` and `POST /laml` → XML compatibility shim that redirects SignalWire to `/sip`
+- `POST /api/demo/session` → returns a realistic PSTN or WebRTC demo session descriptor
+- `POST /api/demo/live-call` → simulates a multi-turn live call transcript before a real call
+- `POST /api/translate` → deterministic turn translation endpoint for demos and regression tests
 - `POST /swaig` → SWAIG tool calls
 - `POST /post_prompt` → post-call AI callback
 
@@ -128,6 +131,43 @@ curl -s http://localhost:3001/api/translate \
 ```
 
 The MVP now exposes a deterministic local translation loop. Known phrases resolve from a small phrasebook, and unknown phrases fall back to a stable tagged response so demos and tests stay reliable without paid translation providers.
+
+### Generate a live-call demo session
+
+```bash
+curl -s http://localhost:3001/api/demo/session \
+  -H 'content-type: application/json' \
+  -d '{
+    "transport": "pstn",
+    "source_language": "en-US",
+    "target_language": "es-ES",
+    "source_language_label": "English",
+    "target_language_label": "Spanish"
+  }' | jq
+```
+
+This returns a session descriptor with the SWML URL, `/sip` webhook, `/laml` fallback, translation endpoint, and a short operator checklist for either PSTN or WebRTC demos.
+
+### Simulate a live call before dialing
+
+```bash
+curl -s http://localhost:3001/api/demo/live-call \
+  -H 'content-type: application/json' \
+  -d '{
+    "transport": "webrtc",
+    "source_language": "en-US",
+    "target_language": "es-ES",
+    "source_language_label": "English",
+    "target_language_label": "Spanish",
+    "turns": [
+      {"speaker": "caller", "text": "hello"},
+      {"speaker": "caller", "text": "Please transfer me to billing."},
+      {"speaker": "callee", "text": "hola"}
+    ]
+  }' | jq
+```
+
+This gives you a deterministic transcript and event log for the same call path the live demo is expected to follow, which makes PSTN/WebRTC regressions much easier to spot.
 
 ## Logging
 

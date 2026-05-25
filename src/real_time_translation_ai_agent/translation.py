@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+from uuid import uuid4
 import httpx
 
 from .logging_utils import get_logger
 from .models import (
+    DemoSessionDescriptor,
+    DemoSessionRequest,
+    DemoSimulationRequest,
+    DemoSimulationResponse,
     TranslationDecision,
     TranslationRequest,
     TranslationTurnRequest,
@@ -118,6 +123,133 @@ class TranslationRouter:
 
         return TranslationTurnResponse(**data)
 
+    def build_demo_session(self, payload: Dict[str, Any], public_base_url: str) -> Dict[str, Any]:
+        request = DemoSessionRequest(**payload)
+        session_id = f"demo-{request.transport}-{uuid4().hex[:10]}"
+        normalized_base = public_base_url.rstrip('/')
+        descriptor = DemoSessionDescriptor(
+            session_id=session_id,
+            transport=request.transport,
+            source_language=request.source_language,
+            target_language=request.target_language,
+            source_language_label=request.source_language_label,
+            target_language_label=request.target_language_label,
+            swml_url=f'{normalized_base}/',
+            laml_url=f'{normalized_base}/laml',
+            call_webhook_url=f'{normalized_base}/sip',
+            translate_url=f'{normalized_base}/api/translate',
+            instructions=_build_demo_instructions(request.transport, normalized_base),
+            metadata={
+                'caller_number': request.caller_number,
+                'transport_profile': 'browser-demo' if request.transport == 'webrtc' else 'phone-number-demo',
+            },
+        )
+        self.log.info(
+            'demo_session_built',
+            extra={
+                'session_id': session_id,
+                'transport': request.transport,
+                'source_language': request.source_language,
+                'target_language': request.target_language,
+            },
+        )
+        return descriptor.model_dump()
+
+    def simulate_live_call(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        request = DemoSimulationRequest(**payload)
+        session_id = request.session_id or f"sim-{request.transport}-{uuid4().hex[:10]}"
+        events: list[dict[str, Any]] = [
+            {
+                'type': 'call.started',
+                'transport': request.transport,
+                'session_id': session_id,
+            },
+            {
+                'type': 'prompt.played',
+                'transport': request.transport,
+                'session_id': session_id,
+                'text': (
+                    f'Welcome to the {request.source_language_label} to '
+                    f'{request.target_language_label} translation line.'
+                ),
+            },
+        ]
+        transcript: list[dict[str, Any]] = []
+
+        for index, turn in enumerate(request.turns, start=1):
+            target_language = request.target_language
+            target_language_label = request.target_language_label
+            source_language = request.source_language
+            source_language_label = request.source_language_label
+            if turn.speaker == 'callee':
+                target_language = request.source_language
+                target_language_label = request.source_language_label
+                source_language = request.target_language
+                source_language_label = request.target_language_label
+
+            translation = TranslationTurnResponse(
+                **self.translate_turn(
+                    TranslationTurnRequest(
+                        text=turn.text,
+                        source_language=source_language,
+                        target_language=target_language,
+                        source_language_label=source_language_label,
+                        target_language_label=target_language_label,
+                        session_id=session_id,
+                        metadata={'turn_index': index, 'speaker': turn.speaker, 'transport': request.transport},
+                    ).model_dump()
+                )
+            )
+
+            heard_event = {
+                'type': f'{turn.speaker}.heard',
+                'turn_index': index,
+                'text': turn.text,
+                'language': source_language,
+            }
+            translated_event = {
+                'type': 'translation.emitted',
+                'turn_index': index,
+                'speaker': turn.speaker,
+                'translated_text': translation.translated_text,
+                'target_language': target_language,
+                'provider': translation.provider,
+                'fallback_used': translation.fallback_used,
+            }
+            events.extend([heard_event, translated_event])
+            transcript.append(
+                {
+                    'turn_index': index,
+                    'speaker': turn.speaker,
+                    'source_text': turn.text,
+                    'translated_text': translation.translated_text,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'provider': translation.provider,
+                    'fallback_used': translation.fallback_used,
+                }
+            )
+
+        response = DemoSimulationResponse(
+            session_id=session_id,
+            transport=request.transport,
+            events=events,
+            transcript=transcript,
+            metadata={
+                'turn_count': len(request.turns),
+                'mode': 'demo-live-call-simulation',
+            },
+        )
+        self.log.info(
+            'demo_live_call_simulated',
+            extra={
+                'session_id': session_id,
+                'transport': request.transport,
+                'turn_count': len(request.turns),
+            },
+        )
+        return response.model_dump()
+
 
 def local_webhook_decision(payload: Dict[str, Any]) -> Dict[str, Any]:
     request = TranslationRequest(**payload)
@@ -192,3 +324,20 @@ def local_translate_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         },
     )
     return response.model_dump()
+
+
+def _build_demo_instructions(transport: str, public_base_url: str) -> list[str]:
+    common = [
+        'Start the backend and confirm /health returns status=healthy.',
+        f'Use {public_base_url}/api/demo/session to generate a fresh demo session descriptor.',
+        f'Use {public_base_url}/api/demo/live-call to simulate multi-turn translation behavior before a live test.',
+    ]
+    if transport == 'pstn':
+        return common + [
+            f'Point the SignalWire phone number webhook to {public_base_url}/ or {public_base_url}/laml.',
+            'Place a PSTN call and compare live behavior against the simulated transcript.',
+        ]
+    return common + [
+        f'Use {public_base_url}/sip as the browser/WebRTC call entrypoint.',
+        'Open a browser-based call client and compare live behavior against the simulated transcript.',
+    ]

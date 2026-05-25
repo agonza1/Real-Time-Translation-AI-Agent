@@ -133,6 +133,50 @@ def main() -> int:
     assert_ok(fallback_body["fallback_used"] is True, f"expected fallback path: {fallback_body}")
     assert_ok(fallback_body["translated_text"] == "[Spanish] Please transfer me to billing.", f"unexpected fallback translation: {fallback_body}")
 
+    demo_session = CLIENT.post(
+        "/api/demo/session",
+        json={
+            "transport": "pstn",
+            "source_language": "en-US",
+            "target_language": "es-ES",
+            "source_language_label": "English",
+            "target_language_label": "Spanish",
+        },
+        headers={
+            "host": PUBLIC_HOST,
+            "x-forwarded-host": PUBLIC_HOST,
+            "x-forwarded-proto": "https",
+        },
+    )
+    assert_ok(demo_session.status_code == 200, f"/api/demo/session returned {demo_session.status_code}")
+    demo_session_body = demo_session.json()
+    assert_ok(demo_session_body["transport"] == "pstn", f"unexpected demo session transport: {demo_session_body}")
+    assert_ok(demo_session_body["call_webhook_url"] == f"{PUBLIC_BASE}/sip", f"unexpected demo call webhook: {demo_session_body}")
+    assert_ok(len(demo_session_body["instructions"]) >= 4, f"expected demo instructions: {demo_session_body}")
+
+    live_call = CLIENT.post(
+        "/api/demo/live-call",
+        json={
+            "transport": "webrtc",
+            "source_language": "en-US",
+            "target_language": "es-ES",
+            "source_language_label": "English",
+            "target_language_label": "Spanish",
+            "turns": [
+                {"speaker": "caller", "text": "hello"},
+                {"speaker": "caller", "text": "Please transfer me to billing."},
+                {"speaker": "callee", "text": "hola"},
+            ],
+        },
+    )
+    assert_ok(live_call.status_code == 200, f"/api/demo/live-call returned {live_call.status_code}")
+    live_call_body = live_call.json()
+    assert_ok(live_call_body["transport"] == "webrtc", f"unexpected demo live-call transport: {live_call_body}")
+    assert_ok(live_call_body["metadata"]["turn_count"] == 3, f"unexpected live-call turn count: {live_call_body}")
+    assert_ok(live_call_body["transcript"][0]["translated_text"] == "Hola.", f"unexpected first translated turn: {live_call_body}")
+    assert_ok(live_call_body["transcript"][1]["fallback_used"] is True, f"expected fallback in second turn: {live_call_body}")
+    assert_ok(live_call_body["transcript"][2]["translated_text"] == "Hello.", f"unexpected reverse translation: {live_call_body}")
+
     print("translation agent contract smoke test passed")
     return 0
 

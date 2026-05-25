@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from .agent import LiveTranslationAgent
 from .config import get_settings
 from .logging_utils import get_logger, setup_logging
-from .models import TranslationTurnRequest
+from .models import DemoSessionRequest, DemoSimulationRequest, TranslationTurnRequest
 
 setup_logging()
 settings = get_settings()
@@ -62,6 +62,21 @@ async def status():
 @app.post('/api/translate')
 async def translate_turn(payload: TranslationTurnRequest):
     return agent.translation_router.translate_turn(payload.model_dump())
+
+
+@app.post('/api/demo/session')
+async def demo_session(payload: DemoSessionRequest, request: Request):
+    public_base_url = (
+        request.headers.get('x-forwarded-proto', 'http')
+        + '://'
+        + (request.headers.get('x-forwarded-host') or request.headers.get('host') or f'localhost:{settings.port}')
+    )
+    return agent.translation_router.build_demo_session(payload.model_dump(), public_base_url)
+
+
+@app.post('/api/demo/live-call')
+async def demo_live_call(payload: DemoSimulationRequest):
+    return agent.translation_router.simulate_live_call(payload.model_dump())
 
 
 app.include_router(agent.as_router(), prefix=agent.route)
