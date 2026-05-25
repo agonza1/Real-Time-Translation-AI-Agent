@@ -18,9 +18,9 @@ This keeps the first demo simple while preserving a clean contract for splitting
 
 ```mermaid
 flowchart TD
-    A[Caller dials SignalWire number] --> B[SignalWire invokes agent endpoint]
-    B --> C[Translation Agent / FastAPI app]
-    C --> D[Agent confirms source/target languages]
+    A[Caller dials SignalWire number] --> B[SignalWire number points to https://public-base/]
+    B --> C[Translation Agent / FastAPI app root]
+    C --> D[SDK-generated SWML AI flow]
     D --> E[route_translation_call tool]
     E --> F{USE_LOCAL_WEBHOOK?}
     F -->|yes| G[Local routing logic in same app]
@@ -33,7 +33,6 @@ flowchart TD
     L[ngrok public URL] --> B
     M[Docker Compose] --> C
     M --> L
-```
 ```
 
 ## What this app does
@@ -50,8 +49,11 @@ flowchart TD
 
 - `GET /health`
 - `GET /ready`
-- `GET /` → SWML document (basic auth required)
-- `POST /swaig` → SWAIG tool calls (basic auth required)
+- `GET /` and `POST /` → SDK-generated SWML entrypoint for inbound SignalWire traffic
+- `GET /sip` and `POST /sip` → same SDK-generated SWML entrypoint, used by the LaML compatibility shim
+- `GET /laml` and `POST /laml` → XML compatibility shim that redirects SignalWire to `/sip`
+- `POST /swaig` → SWAIG tool calls
+- `POST /post_prompt` → post-call AI callback
 
 ## Local development
 
@@ -70,7 +72,7 @@ docker compose up --build
 ```
 
 That starts:
-- the backend on port `3000`
+- the backend on port `3001`
 - ngrok on port `4040` for the local inspection API
 
 To inspect the public ngrok URL:
@@ -80,20 +82,21 @@ curl -s http://localhost:4040/api/tunnels | jq
 ```
 
 Use the resulting `https://...ngrok...` URL as the public base URL for SignalWire.
+Recommended SDK-native setup: point the SignalWire phone number webhook directly to `https://...ngrok.../`.
+Compatibility setup: if direct root handling is flaky for a PSTN number, point the number to `https://...ngrok.../laml`; the shim redirects to `/sip`, which renders the same SDK SWML.
 
 ## Example calls
 
 ### Fetch SWML
 
 ```bash
-curl -s -u signalwire:dev-password-change-me http://localhost:3000/ | jq
+curl -s http://localhost:3001/ | jq
 ```
 
 ### Call SWAIG routing tool
 
 ```bash
-curl -s http://localhost:3000/swaig \
-  -u signalwire:dev-password-change-me \
+curl -s http://localhost:3001/swaig \
   -H 'content-type: application/json' \
   -d '{
     "function": "route_translation_call",
@@ -101,6 +104,14 @@ curl -s http://localhost:3000/swaig \
     "argument": {"raw": "{\"source_language\":\"en-US\",\"target_language\":\"es-ES\"}"}
   }' | jq
 ```
+
+### Run the local contract smoke test
+
+```bash
+uv run python scripts/smoke_contract.py
+```
+
+This verifies the health endpoint, root `/` SDK SWML, `/sip`, `/laml`, public callback URL rewriting for ngrok-style forwarded headers, and both raw + parsed SWAIG argument formats.
 
 ## Logging
 
@@ -111,6 +122,13 @@ Supported log env vars:
 
 `pretty` is nicer for local development.
 `json` is better for ingestion in hosted environments.
+
+## SignalWire number config
+
+- Preferred: configure the inbound webhook URL as `https://<public-base>/`
+- Fallback/compatibility: configure the inbound webhook URL as `https://<public-base>/laml`, which returns XML redirecting to `/sip`
+- After every ngrok URL change, update both `PUBLIC_BASE_URL` and the SignalWire phone-number webhook URL
+- Verify live `GET/POST /`, `GET/POST /sip`, and `GET/POST /laml` before placing another inbound PSTN test call
 
 ## Recommended MVP env
 

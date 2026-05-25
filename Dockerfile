@@ -12,6 +12,6 @@ COPY .env.example ./.env.example
 
 RUN uv sync --frozen --no-dev
 
-EXPOSE 3000
+EXPOSE 3001
 
 CMD ["uv", "run", "python", "-m", "real_time_translation_ai_agent.main"]
