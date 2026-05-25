@@ -101,6 +101,38 @@ def main() -> int:
         "fr-FR",
     )
 
+    deterministic_translation = CLIENT.post(
+        "/api/translate",
+        json={
+            "text": "I need help with my reservation.",
+            "source_language": "en-US",
+            "target_language": "es-ES",
+            "source_language_label": "English",
+            "target_language_label": "Spanish",
+            "session_id": "smoke-session",
+        },
+    )
+    assert_ok(deterministic_translation.status_code == 200, f"/api/translate returned {deterministic_translation.status_code}")
+    deterministic_body = deterministic_translation.json()
+    assert_ok(deterministic_body["provider"] == "deterministic-fallback", f"unexpected provider: {deterministic_body}")
+    assert_ok(deterministic_body["translated_text"] == "Necesito ayuda con mi reservacion.", f"unexpected deterministic translation: {deterministic_body}")
+    assert_ok(deterministic_body["fallback_used"] is False, f"expected phrasebook match: {deterministic_body}")
+
+    fallback_translation = CLIENT.post(
+        "/api/translate",
+        json={
+            "text": "Please transfer me to billing.",
+            "source_language": "en-US",
+            "target_language": "es-ES",
+            "source_language_label": "English",
+            "target_language_label": "Spanish",
+        },
+    )
+    assert_ok(fallback_translation.status_code == 200, f"/api/translate fallback returned {fallback_translation.status_code}")
+    fallback_body = fallback_translation.json()
+    assert_ok(fallback_body["fallback_used"] is True, f"expected fallback path: {fallback_body}")
+    assert_ok(fallback_body["translated_text"] == "[Spanish] Please transfer me to billing.", f"unexpected fallback translation: {fallback_body}")
+
     print("translation agent contract smoke test passed")
     return 0
 

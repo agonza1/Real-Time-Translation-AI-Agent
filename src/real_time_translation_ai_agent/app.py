@@ -7,6 +7,7 @@ from fastapi.responses import Response
 from .agent import LiveTranslationAgent
 from .config import get_settings
 from .logging_utils import get_logger, setup_logging
+from .models import TranslationTurnRequest
 
 setup_logging()
 settings = get_settings()
@@ -56,6 +57,11 @@ async def readiness_check():
 async def status():
     """Alias for /api-status for convenience."""
     return {'status': 'ok', 'healthy': True}
+
+
+@app.post('/api/translate')
+async def translate_turn(payload: TranslationTurnRequest):
+    return agent.translation_router.translate_turn(payload.model_dump())
 
 
 app.include_router(agent.as_router(), prefix=agent.route)
