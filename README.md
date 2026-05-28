@@ -113,6 +113,22 @@ uv run python scripts/smoke_contract.py
 
 This verifies the health endpoint, root `/` SDK SWML, `/sip`, `/laml`, public callback URL rewriting for ngrok-style forwarded headers, and both raw + parsed SWAIG argument formats.
 
+### Exercise the deterministic translation loop
+
+```bash
+curl -s http://localhost:3001/api/translate \
+  -H 'content-type: application/json' \
+  -d '{
+    "text": "I need help with my reservation.",
+    "source_language": "en-US",
+    "target_language": "es-ES",
+    "source_language_label": "English",
+    "target_language_label": "Spanish"
+  }' | jq
+```
+
+The MVP now exposes a deterministic local translation loop. Known phrases resolve from a small phrasebook, and unknown phrases fall back to a stable tagged response so demos and tests stay reliable without paid translation providers.
+
 ## Logging
 
 Supported log env vars:
