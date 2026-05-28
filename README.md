@@ -221,7 +221,7 @@ Supported log env vars:
 
 ```env
 SIGNALWIRE_SPACE=webrtcventures.signalwire.com
-SIGNALWIRE_PROJECT=3e85ab51-d514-409d-bfcd-211997ae7fbb
+SIGNALWIRE_PROJECT=<your-signalwire-project-id>
 SIGNALWIRE_TOKEN=...
 SWML_BASIC_AUTH_USER=signalwire
 SWML_BASIC_AUTH_PASSWORD=<strong-password>
