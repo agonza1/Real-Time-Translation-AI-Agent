@@ -23,6 +23,21 @@ There are two entrypoints in the current MVP:
 
 The live path is turn-by-turn real-time translation. The service does not use a scripted phrase or pre-known caller text; it receives `SpeechResult` from SignalWire for each spoken phrase and translates that text directly.
 
+## Full-duplex production direction
+
+The current LaML demo is not full duplex: one participant speaks, SignalWire sends the completed utterance to the app, the app translates it, and SignalWire speaks the translated response back before gathering the next utterance.
+
+For production full-duplex interpreting, this service would sit between two human participants as a media bridge instead of a single-party LaML gather loop:
+
+- connect participant A and participant B into separate call legs or WebRTC/SIP media streams
+- stream each participant's audio to the translation agent continuously
+- run streaming speech-to-text, translation, and text-to-speech for each direction independently
+- send A's translated speech to B in B's language, while sending B's translated speech to A in A's language
+- maintain per-direction state for language, speaker turns, partial transcripts, latency, interruptions, and barge-in handling
+- record transcripts and timing metadata so the session can be audited and improved later
+
+In that architecture, the agent becomes the interpreter in the middle: English audio from one human is converted into Spanish audio for the other human, and Spanish audio from the other human is converted back into English audio for the first human. The existing `translate_turn` contract is still useful as the core translation boundary, but the transport layer would need to move from request/response LaML `Gather` turns to bidirectional streaming media.
+
 ```mermaid
 flowchart TD
     A[Caller dials SignalWire number] --> B[SignalWire number points to https://public-base/laml]
@@ -244,4 +259,5 @@ Current recommendation for MVP:
 - LaML `/laml` is the currently verified live PSTN path for unknown caller speech
 - the translation routing contract currently lives as local in-process webhook logic
 - OpenAI Responses handles unscripted turn translation when `OPENAI_API_KEY` is set
+- full-duplex production interpreting would require bidirectional streaming media rather than the current LaML gather/respond loop
 - later we can move that same contract into a separate HTTP webhook service if needed
