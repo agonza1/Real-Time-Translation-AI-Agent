@@ -50,15 +50,18 @@ class LiveTranslationAgent(AgentBase):
             'Behavior',
             (
                 'When the call begins, greet the caller briefly, explain that this is an English to Spanish translation service, '
-                'and invite them to speak in English. Translate what they say into natural Spanish. Preserve meaning, intent, '
-                'and tone. Do not add unnecessary commentary. Be brief, clear, and conversational like a real phone interpreter.'
+                'and invite them to speak in English. For every caller utterance that should be translated, call '
+                'translate_spoken_text with the exact words you heard. Speak only the returned Spanish translation. '
+                'Preserve meaning, intent, and tone. Do not add unnecessary commentary. Be brief, clear, and conversational '
+                'like a real phone interpreter.'
             ),
         )
         self.prompt_add_section(
             'Tool Use',
             (
                 'Use the route_translation_call tool when you need to initialize or confirm the translation direction and call routing '
-                'metadata. If the caller asks for a different language pair, clarify it in one short question and then use the tool.'
+                'metadata. After the route is initialized, use translate_spoken_text for each caller phrase. If the caller asks '
+                'for a different language pair, clarify it in one short question and then use route_translation_call.'
             ),
         )
         self.prompt_add_section(
@@ -72,7 +75,15 @@ class LiveTranslationAgent(AgentBase):
 
         self.set_params({
             'wait_for_user': True,
-            'end_of_speech_timeout': 1000,
+            'end_of_speech_timeout': 1500,
+            'speech_event_timeout': 1800,
+            'enable_barge': False,
+            'barge_functions': False,
+            'transparent_barge': False,
+            'interrupt_on_noise': False,
+            'static_greeting_no_barge': True,
+            'attention_timeout': 0,
+            'ai_volume': 8,
         })
 
         self.add_language(
@@ -248,6 +259,10 @@ class LiveTranslationAgent(AgentBase):
             result = self.route_translation_call(args=args, raw_data=body if isinstance(body, dict) else {})
             return result.to_dict()
 
+        if function_name == 'translate_spoken_text':
+            result = self.translate_spoken_text(args=args, raw_data=body if isinstance(body, dict) else {})
+            return result.to_dict()
+
         return {'error': f'Unknown function: {function_name}'}
 
     @AgentBase.tool(
@@ -265,7 +280,6 @@ class LiveTranslationAgent(AgentBase):
     ) -> SwaigFunctionResult:
         result = SwaigFunctionResult('Welcome to the English to Spanish translation line. Please say something in English after the tone.')
         result.say('Welcome to the English to Spanish translation line. Please say something in English after the tone.')
-        result.wait_for_user(enabled=True)
         result.set_end_of_speech_timeout(1000)
         return result
 
@@ -324,5 +338,67 @@ class LiveTranslationAgent(AgentBase):
             'translation_route': decision,
             'translation_source_language': payload['source_language'],
             'translation_target_language': payload['target_language'],
+        })
+        return result
+
+    @AgentBase.tool(
+        name='translate_spoken_text',
+        description='Translate the caller latest spoken phrase and speak the translated text back on the call.',
+        parameters={
+            'type': 'object',
+            'properties': {
+                'text': {'type': 'string', 'description': 'The exact phrase the caller said.'},
+                'source_language': {'type': 'string'},
+                'target_language': {'type': 'string'},
+                'source_language_label': {'type': 'string'},
+                'target_language_label': {'type': 'string'},
+                'session_id': {'type': 'string'},
+                'call_id': {'type': 'string'},
+            },
+            'required': ['text'],
+        },
+    )
+    def translate_spoken_text(
+        self,
+        args: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None,
+    ) -> SwaigFunctionResult:
+        settings = self.settings
+        args = args or {}
+        text = str(args.get('text') or '').strip()
+        payload: Dict[str, Any] = {
+            'text': text,
+            'source_language': args.get('source_language') or settings.default_source_language,
+            'target_language': args.get('target_language') or settings.default_target_language,
+            'source_language_label': args.get('source_language_label') or settings.default_source_label,
+            'target_language_label': args.get('target_language_label') or settings.default_target_label,
+            'session_id': args.get('session_id') or (raw_data or {}).get('ai_session_id'),
+            'call_id': args.get('call_id') or (raw_data or {}).get('call_id'),
+            'metadata': {'raw_data_present': bool(raw_data)},
+        }
+
+        self.logx.info(
+            'translating_spoken_text',
+            extra={
+                'source_language': payload['source_language'],
+                'target_language': payload['target_language'],
+                'call_id': payload['call_id'],
+                'has_text': bool(text),
+            },
+        )
+
+        if not text:
+            result = SwaigFunctionResult('Please say that again.')
+            result.say('Please say that again.')
+            return result
+
+        translation = self.translation_router.translate_turn(payload)
+        translated_text = translation.get('translated_text') or text
+        result = SwaigFunctionResult(translated_text)
+        result.say(translated_text)
+        result.update_global_data({
+            'last_source_text': text,
+            'last_translated_text': translated_text,
+            'last_translation': translation,
         })
         return result
