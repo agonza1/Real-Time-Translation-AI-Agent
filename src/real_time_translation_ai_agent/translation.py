@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from uuid import uuid4
 import httpx
 
+from .config import get_settings
 from .logging_utils import get_logger
 from .models import (
     DemoSessionDescriptor,
@@ -77,6 +78,10 @@ class TranslationRouter:
             if translated is not None:
                 return translated.model_dump()
 
+        translated = self._call_openai_translation_turn(request)
+        if translated is not None:
+            return translated.model_dump()
+
         response = local_translate_turn(request.model_dump())
         self.log.info(
             'using_deterministic_translation_fallback',
@@ -88,6 +93,89 @@ class TranslationRouter:
             },
         )
         return response
+
+    def _call_openai_translation_turn(self, request: TranslationTurnRequest) -> TranslationTurnResponse | None:
+        settings = get_settings()
+        if not settings.openai_api_key:
+            return None
+
+        source_label = request.source_language_label or request.source_language
+        target_label = request.target_language_label or request.target_language
+        prompt = (
+            f'Translate the following {source_label} speech into {target_label}. '
+            'Return only the translated text, with no labels, quotes, commentary, or alternatives. '
+            'Preserve the speaker intent and make it natural for a live phone interpreter.\n\n'
+            f'Text: {request.text}'
+        )
+        body = {
+            'model': settings.llm_model,
+            'instructions': 'You are a real-time phone interpreter. Translate exactly what was said.',
+            'input': prompt,
+            'reasoning': {'effort': 'minimal'},
+            'text': {'verbosity': 'low'},
+            'max_output_tokens': 220,
+        }
+        headers = {
+            'Authorization': f'Bearer {settings.openai_api_key}',
+            'Content-Type': 'application/json',
+        }
+
+        try:
+            with httpx.Client(timeout=12.0) as client:
+                response = client.post('https://api.openai.com/v1/responses', json=body, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except Exception as exc:  # noqa: BLE001 - phone demo should degrade instead of dropping call flow
+            self.log.warning(
+                'openai_translation_turn_failed',
+                extra={
+                    'call_id': request.call_id,
+                    'session_id': request.session_id,
+                    'model': settings.llm_model,
+                    'error': str(exc),
+                },
+            )
+            return None
+
+        translated_text = _extract_openai_response_text(data)
+        if not translated_text:
+            self.log.warning(
+                'openai_translation_turn_invalid_payload',
+                extra={
+                    'call_id': request.call_id,
+                    'session_id': request.session_id,
+                    'model': settings.llm_model,
+                    'status': data.get('status') if isinstance(data, dict) else None,
+                },
+            )
+            return None
+
+        self.log.info(
+            'openai_translation_turn_succeeded',
+            extra={
+                'source_language': request.source_language,
+                'target_language': request.target_language,
+                'call_id': request.call_id,
+                'session_id': request.session_id,
+                'model': settings.llm_model,
+            },
+        )
+        return TranslationTurnResponse(
+            provider='openai-responses',
+            fallback_used=False,
+            source_text=request.text,
+            translated_text=translated_text,
+            source_language=request.source_language,
+            target_language=request.target_language,
+            source_language_label=request.source_language_label,
+            target_language_label=request.target_language_label,
+            metadata={
+                'call_id': request.call_id,
+                'session_id': request.session_id,
+                'model': settings.llm_model,
+                'mode': 'realtime-openai-translation',
+            },
+        )
 
     def _call_external_translation_turn(self, request: TranslationTurnRequest) -> TranslationTurnResponse | None:
         headers: Dict[str, str] = {'Content-Type': 'application/json'}
@@ -251,6 +339,23 @@ class TranslationRouter:
         return response.model_dump()
 
 
+def _extract_openai_response_text(data: Dict[str, Any]) -> str:
+    output_text = data.get('output_text')
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    parts: list[str] = []
+    for item in data.get('output') or []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get('content') or []:
+            if not isinstance(content, dict):
+                continue
+            if content.get('type') == 'output_text' and isinstance(content.get('text'), str):
+                parts.append(content['text'])
+    return ' '.join(part.strip() for part in parts if part.strip()).strip()
+
+
 def local_webhook_decision(payload: Dict[str, Any]) -> Dict[str, Any]:
     request = TranslationRequest(**payload)
     log = get_logger('local_webhook', component='local-webhook')
@@ -285,6 +390,13 @@ PHRASEBOOK: dict[tuple[str, str], dict[str, str]] = {
     ('en-US', 'es-ES'): {
         'hello': 'Hola.',
         'how are you?': 'Como estas?',
+        'i need help': 'Necesito ayuda.',
+        'with my reservation': 'con mi reservacion.',
+        'with my reserve': 'con mi reservacion.',
+        'reservation': 'reservacion.',
+        'reserve': 'reservacion.',
+        'i need help with my reservation': 'Necesito ayuda con mi reservacion.',
+        'i need help with my reserve': 'Necesito ayuda con mi reservacion.',
         'i need help with my reservation.': 'Necesito ayuda con mi reservacion.',
         'where is the hospital?': 'Donde esta el hospital?',
         'please speak slowly.': 'Por favor habla despacio.',
@@ -300,9 +412,9 @@ PHRASEBOOK: dict[tuple[str, str], dict[str, str]] = {
 
 def local_translate_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
     request = TranslationTurnRequest(**payload)
-    normalized = request.text.strip().lower()
+    normalized = ' '.join(request.text.strip().lower().split())
     phrasebook = PHRASEBOOK.get((request.source_language, request.target_language), {})
-    translated = phrasebook.get(normalized)
+    translated = phrasebook.get(normalized) or phrasebook.get(normalized.rstrip('.!?'))
     fallback_used = translated is None
     if translated is None:
         translated = f"[{request.target_language_label}] {request.text.strip()}"

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from html import escape
+from urllib.parse import parse_qs
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -82,13 +85,77 @@ async def demo_live_call(payload: DemoSimulationRequest):
 app.include_router(agent.as_router(), prefix=agent.route)
 
 
-LAML_REDIRECT = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Redirect method=\"POST\">/sip</Redirect>\n</Response>\n"""
+def _public_base_url(request: Request) -> str:
+    return (
+        request.headers.get('x-forwarded-proto', 'http')
+        + '://'
+        + (request.headers.get('x-forwarded-host') or request.headers.get('host') or f'localhost:{settings.port}')
+    ).rstrip('/')
+
+
+def _laml_response(body: str) -> Response:
+    return Response(
+        content=f'<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n{body}\n</Response>\n',
+        media_type='application/xml',
+    )
 
 
 @app.get('/laml')
 @app.post('/laml')
-async def laml_entry():
-    return Response(content=LAML_REDIRECT, media_type='application/xml')
+async def laml_entry(request: Request):
+    base = _public_base_url(request)
+    action_url = escape(f'{base}/laml/translate')
+    log.info('laml_entry', extra={'action_url': action_url})
+    return _laml_response(
+        f'  <Say voice="woman" language="en-US">Welcome to the English to Spanish translation line. Say a phrase in English after the beep.</Say>\n'
+        f'  <Gather input="speech" action="{action_url}" method="POST" speechTimeout="auto" timeout="7" language="en-US">\n'
+        f'    <Say voice="woman" language="en-US">Please speak now.</Say>\n'
+        f'  </Gather>\n'
+        f'  <Say voice="woman" language="en-US">I did not hear anything. Please try again.</Say>\n'
+        f'  <Redirect method="POST">{escape(f"{base}/laml")}</Redirect>'
+    )
+
+
+@app.get('/laml/translate')
+@app.post('/laml/translate')
+async def laml_translate(request: Request):
+    content_type = (request.headers.get('content-type') or '').lower()
+    if 'application/json' in content_type:
+        payload = await request.json()
+        form = payload if isinstance(payload, dict) else {}
+    else:
+        body = (await request.body()).decode('utf-8', errors='replace')
+        parsed = parse_qs(body)
+        form = {key: values[0] for key, values in parsed.items() if values}
+    spoken_text = str(form.get('SpeechResult') or form.get('speech_result') or '').strip()
+    call_id = str(form.get('CallSid') or form.get('call_id') or '')
+    if not spoken_text:
+        log.info('laml_translate_empty', extra={'call_id': call_id})
+        return _laml_response(
+            '  <Say voice="woman" language="en-US">I did not catch that. Please try again.</Say>\n'
+            f'  <Redirect method="POST">{escape(_public_base_url(request) + "/laml")}</Redirect>'
+        )
+
+    translation = agent.translation_router.translate_turn(
+        {
+            'text': spoken_text,
+            'source_language': settings.default_source_language,
+            'target_language': settings.default_target_language,
+            'source_language_label': settings.default_source_label,
+            'target_language_label': settings.default_target_label,
+            'session_id': call_id or None,
+            'call_id': call_id or None,
+        }
+    )
+    translated_text = translation.get('translated_text') or spoken_text
+    log.info(
+        'laml_translate',
+        extra={'call_id': call_id, 'spoken_text': spoken_text, 'translated_text': translated_text},
+    )
+    return _laml_response(
+        f'  <Say voice="woman" language="es-ES">{escape(translated_text)}</Say>\n'
+        f'  <Redirect method="POST">{escape(_public_base_url(request) + "/laml")}</Redirect>'
+    )
 
 
 @app.get('/sip')
