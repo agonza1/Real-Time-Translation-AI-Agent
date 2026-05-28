@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Local contract smoke test for the SignalWire translation agent.
+
+This intentionally avoids external SignalWire/ngrok calls. It validates the app contract
+that has broken during live tests: health, SDK SWML entrypoints, LaML compatibility
+shim, public callback URL rewriting, and SWAIG argument parsing.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from collections.abc import Iterable
+from typing import Any
+
+from fastapi.testclient import TestClient
+
+from real_time_translation_ai_agent.app import app
+
+PUBLIC_BASE = "https://contract-smoke.ngrok-free.app"
+PUBLIC_HOST = "contract-smoke.ngrok-free.app"
+
+
+def iter_strings(value: Any) -> Iterable[str]:
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from iter_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from iter_strings(item)
+    elif isinstance(value, str):
+        yield value
+
+
+def assert_ok(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def get_json_swml(client: TestClient, path: str = "/") -> dict[str, Any]:
+    response = client.get(
+        path,
+        headers={
+            "host": PUBLIC_HOST,
+            "x-forwarded-host": PUBLIC_HOST,
+            "x-forwarded-proto": "https",
+        },
+    )
+    assert_ok(response.status_code == 200, f"{path} returned {response.status_code}: {response.text[:300]}")
+    assert_ok("application/json" in response.headers.get("content-type", ""), f"{path} did not return JSON")
+    return response.json()
+
+
+def assert_public_urls(swml: dict[str, Any], label: str) -> None:
+    urls = [item for item in iter_strings(swml) if item.startswith("http")]
+    assert_ok(urls, f"{label} SWML did not include any absolute callback URLs")
+    bad_urls = [url for url in urls if not url.startswith(PUBLIC_BASE)]
+    assert_ok(not bad_urls, f"{label} SWML had non-public callback URLs: {bad_urls}")
+    assert_ok(any("/swaig" in url or "/post_prompt" in url for url in urls), f"{label} SWML missing SDK callback URLs")
+
+
+def assert_route_response(payload: dict[str, Any], expected_target: str) -> None:
+    response = CLIENT.post("/swaig", json=payload)
+    assert_ok(response.status_code == 200, f"/swaig returned {response.status_code}: {response.text[:300]}")
+    body = response.json()
+    body_text = json.dumps(body)
+    assert_ok(expected_target in body_text, f"/swaig response did not include target {expected_target}: {body}")
+    assert_ok("set_global_data" in body_text, f"/swaig response did not set global translation data: {body}")
+
+
+CLIENT = TestClient(app)
+
+
+def main() -> int:
+    health = CLIENT.get("/health")
+    assert_ok(health.status_code == 200, f"/health returned {health.status_code}")
+    assert_ok(health.json().get("status") == "healthy", f"unexpected /health body: {health.text}")
+
+    root_swml = get_json_swml(CLIENT, "/")
+    assert_public_urls(root_swml, "root")
+
+    sip_swml = get_json_swml(CLIENT, "/sip")
+    assert_public_urls(sip_swml, "sip")
+
+    laml = CLIENT.post("/laml")
+    assert_ok(laml.status_code == 200, f"/laml returned {laml.status_code}")
+    assert_ok("application/xml" in laml.headers.get("content-type", ""), "/laml did not return XML")
+    assert_ok("<Redirect method=\"POST\">/sip</Redirect>" in laml.text, f"unexpected /laml body: {laml.text}")
+
+    assert_route_response(
+        {
+            "function": "route_translation_call",
+            "argument": {"raw": '{"source_language":"en-US","target_language":"es-ES"}'},
+        },
+        "es-ES",
+    )
+    assert_route_response(
+        {
+            "function": "route_translation_call",
+            "argument": {"parsed": [{"target_language": "fr-FR", "target_language_label": "French"}]},
+        },
+        "fr-FR",
+    )
+
+    print("translation agent contract smoke test passed")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:  # noqa: BLE001 - executable smoke test should print clean failure
+        print(f"translation agent contract smoke test failed: {exc}", file=sys.stderr)
+        raise SystemExit(1)

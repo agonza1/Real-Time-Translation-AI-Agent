@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 import json
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import Request, Response
 
@@ -77,22 +78,20 @@ class LiveTranslationAgent(AgentBase):
         self.add_language(
             name=settings.default_source_label,
             code=settings.default_source_language,
-            voice=settings.default_voice,
-            model=settings.llm_model,
+            voice='Polly.Joanna',
         )
         self.add_language(
             name=settings.default_target_label,
             code=settings.default_target_language,
-            voice=settings.default_voice,
-            model=settings.llm_model,
+            voice='Polly.Lupe',
         )
         self.add_post_answer_verb(
             'play',
             {
                 'url': 'say:Welcome to the English to Spanish translation line. Please say something in English after the tone.',
                 'say_voice': 'Polly.Joanna',
-                'say_language': 'en-US'
-            }
+                'say_language': 'en-US',
+            },
         )
 
         self.set_post_prompt(
@@ -110,7 +109,7 @@ class LiveTranslationAgent(AgentBase):
         )
 
     def _build_webhook_url(self, endpoint: str, query_params=None):
-        base = self.settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        base = getattr(self, '_proxy_url_base', None) or self.settings.public_base_url
         if base:
             base = base.rstrip('/')
             endpoint = endpoint.strip('/')
@@ -124,16 +123,47 @@ class LiveTranslationAgent(AgentBase):
     def _check_basic_auth(self, request: Request) -> bool:
         return True
 
+    def _rewrite_url_base(self, value: Any, public_base: str) -> Any:
+        if isinstance(value, dict):
+            return {k: self._rewrite_url_base(v, public_base) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._rewrite_url_base(v, public_base) for v in value]
+        if isinstance(value, str) and value.startswith('http'):
+            parsed = urlparse(value)
+            base = urlparse(public_base)
+            rewritten = parsed._replace(scheme=base.scheme, netloc=base.netloc)
+            return urlunparse(rewritten)
+        return value
+
     async def _handle_root_request(self, request: Request):
         self._detect_proxy_from_request(request)
-        public_base = self.settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        forwarded_proto = request.headers.get('x-forwarded-proto', 'https')
+        forwarded_host = request.headers.get('x-forwarded-host') or request.headers.get('host')
+        proxy_base = getattr(self, '_proxy_url_base', None)
+        public_base = proxy_base or self.settings.public_base_url
+        if forwarded_host:
+            public_base = f"{forwarded_proto}://{forwarded_host}"
         if public_base:
             self._proxy_url_base = public_base.rstrip('/')
+            self.public_url = self._proxy_url_base
+            # Keep SDK-generated tokenized callback URLs on the live public base.
+            self.settings.public_base_url = self._proxy_url_base
 
+        content_type = (request.headers.get('content-type') or '').lower()
         body = {}
         if request.method == 'POST':
             try:
-                body = await request.json()
+                if 'application/json' in content_type:
+                    body = await request.json()
+                elif 'application/x-www-form-urlencoded' in content_type or 'multipart/form-data' in content_type:
+                    form = await request.form()
+                    body = dict(form)
+                else:
+                    try:
+                        body = await request.json()
+                    except Exception:
+                        form = await request.form()
+                        body = dict(form)
             except Exception:
                 body = {}
 
@@ -142,15 +172,44 @@ class LiveTranslationAgent(AgentBase):
             call_id = request.query_params.get('call_id')
 
         swml = self._render_swml(call_id=call_id)
+        if public_base:
+            normalized_base = public_base.rstrip('/')
+            try:
+                swml_obj = json.loads(swml)
+                swml_obj = self._rewrite_url_base(swml_obj, normalized_base)
+                swml = json.dumps(swml_obj)
+            except Exception:
+                pass
+            # Also do a final string-level replacement for any callback URLs the SDK serialized
+            # from stale settings before our runtime proxy detection kicked in.
+            for stale_base in filter(None, [self.settings.public_base_url, proxy_base]):
+                stale_base = stale_base.rstrip('/')
+                if stale_base != normalized_base:
+                    swml = swml.replace(stale_base, normalized_base)
+        self.logx.info(
+            'root_request_handled',
+            extra={
+                'method': request.method,
+                'content_type': content_type,
+                'call_id': call_id,
+                'has_public_base': bool(public_base),
+            },
+        )
         return Response(content=swml, media_type='application/json')
 
     async def _handle_swaig_request(self, request: Request, response: Response):
         self._detect_proxy_from_request(request)
-        settings = self.settings
-        public_base = settings.public_base_url or getattr(self, '_proxy_url_base', None)
+        forwarded_proto = request.headers.get('x-forwarded-proto', 'https')
+        forwarded_host = request.headers.get('x-forwarded-host') or request.headers.get('host')
+        proxy_base = getattr(self, '_proxy_url_base', None)
+        public_base = proxy_base or self.settings.public_base_url
+        if forwarded_host:
+            public_base = f"{forwarded_proto}://{forwarded_host}"
         if public_base:
             public_base = public_base.rstrip('/')
             self._proxy_url_base = public_base
+            self.public_url = public_base
+            self.settings.public_base_url = public_base
         try:
             body = await request.json()
         except Exception:
@@ -160,14 +219,26 @@ class LiveTranslationAgent(AgentBase):
         raw_argument = body.get('argument') if isinstance(body, dict) else None
         args = {}
         if isinstance(raw_argument, dict):
-            raw = raw_argument.get('raw')
-            if isinstance(raw, str):
-                try:
-                    args = json.loads(raw)
-                except Exception:
-                    args = {}
+            if 'parsed' in raw_argument and isinstance(raw_argument['parsed'], list) and raw_argument['parsed']:
+                args = raw_argument['parsed'][0]
             else:
-                args = raw_argument
+                raw = raw_argument.get('raw')
+                if isinstance(raw, str):
+                    try:
+                        args = json.loads(raw)
+                    except Exception:
+                        args = {}
+                else:
+                    args = raw_argument
+
+        self.logx.info(
+            'swaig_request_received',
+            extra={
+                'function_name': function_name,
+                'has_args': bool(args),
+                'body_keys': sorted(body.keys()) if isinstance(body, dict) else [],
+            },
+        )
 
         if function_name == 'startup_hook':
             result = self.startup_hook(args=args, raw_data=body if isinstance(body, dict) else {})
@@ -177,7 +248,7 @@ class LiveTranslationAgent(AgentBase):
             result = self.route_translation_call(args=args, raw_data=body if isinstance(body, dict) else {})
             return result.to_dict()
 
-        return {"error": f"Unknown function: {function_name}"}
+        return {'error': f'Unknown function: {function_name}'}
 
     @AgentBase.tool(
         name='startup_hook',
