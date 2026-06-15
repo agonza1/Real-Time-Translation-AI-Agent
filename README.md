@@ -23,6 +23,10 @@ There are two entrypoints in the current MVP:
 
 The live path is turn-by-turn real-time translation. The service does not use a scripted phrase or pre-known caller text; it receives `SpeechResult` from SignalWire for each spoken phrase and translates that text directly.
 
+## Demo video
+
+Watch the demo walkthrough: [Real time AI phone translator.mp4](https://drive.google.com/file/d/1HKs-IdhIayHToAvkCpGAWjv0APnpXJcb/view?usp=sharing).
+
 ## Full-duplex production direction
 
 The current LaML demo is not full duplex: one participant speaks, SignalWire sends the completed utterance to the app, the app translates it, and SignalWire speaks the translated response back before gathering the next utterance.
