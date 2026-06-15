@@ -68,16 +68,17 @@ flowchart TD
 - captures arbitrary caller speech through SignalWire `Gather input="speech"`
 - translates each captured utterance with OpenAI Responses when `OPENAI_API_KEY` is configured
 - speaks the translated text back with Spanish LaML `<Say language="es-ES">`
-- confirms source and target languages
+- initializes and records source/target language routing metadata through SWAIG
 - triggers a translation-routing tool (`route_translation_call`)
 - calls local in-process webhook logic for routing decisions by default
-- can later call an external webhook without changing the SignalWire-facing contract
+- can call an external webhook for routing and turn translation without changing the SignalWire-facing contract
 - logs routing decisions clearly for debugging/demo purposes
 
 ## Endpoints
 
-- `GET /health`
-- `GET /ready`
+- `GET /health` and `POST /health`
+- `GET /ready` and `POST /ready`
+- `GET /api-status`, `POST /api-status`, `GET /status`, and `POST /status` -> simple external probe aliases that return `{"status": "ok", "healthy": true}`
 - `GET /` and `POST /` → SDK-generated SWML entrypoint for inbound SignalWire traffic
 - `GET /sip` and `POST /sip` → same SDK-generated SWML entrypoint for SIP/WebRTC-compatible clients
 - `GET /laml` and `POST /laml` → LaML XML entrypoint that prompts the caller and gathers arbitrary English speech
@@ -118,7 +119,7 @@ Use the resulting `https://...ngrok...` URL as the public base URL for SignalWir
 Recommended live PSTN setup: point the SignalWire phone number webhook directly to `https://...ngrok.../laml`.
 SDK-native setup: point an SDK/SWML client or compatible SignalWire number webhook to `https://...ngrok.../` or `https://...ngrok.../sip`.
 
-For the live PSTN path, configure `OPENAI_API_KEY` and set `LLM_MODEL` to the translation model you want to use. If OpenAI is not configured or the API call fails, the call remains alive and falls back to the local deterministic phrasebook/tagged response path.
+For the live PSTN path, configure `OPENAI_API_KEY` and set `LLM_MODEL` to the translation model you want to use. If `USE_LOCAL_WEBHOOK=false`, `TRANSLATION_WEBHOOK_URL` is tried first for `/api/translate` by calling `<TRANSLATION_WEBHOOK_URL>/translate`; otherwise OpenAI Responses is used when configured. If the external webhook or OpenAI call fails, the call remains alive and falls back to the local deterministic phrasebook/tagged response path.
 
 ## Example calls
 
@@ -235,20 +236,40 @@ Supported log env vars:
 ## Recommended MVP env
 
 ```env
+HOST=0.0.0.0
+PORT=3001
+ENVIRONMENT=development
+PUBLIC_BASE_URL=https://xxxx.ngrok-free.app
 SIGNALWIRE_SPACE=webrtcventures.signalwire.com
 SIGNALWIRE_PROJECT=<your-signalwire-project-id>
 SIGNALWIRE_TOKEN=...
+SIGNALWIRE_CONTEXT=live-translation
 SWML_BASIC_AUTH_USER=signalwire
 SWML_BASIC_AUTH_PASSWORD=<strong-password>
 OPENAI_API_KEY=...
 LLM_MODEL=gpt-5-nano
 NGROK_AUTHTOKEN=...
 USE_LOCAL_WEBHOOK=true
+LOCAL_WEBHOOK_PATH=/internal/translation-webhook
+TRANSLATION_WEBHOOK_URL=
+TRANSLATION_WEBHOOK_AUTH_HEADER=
 DEFAULT_SOURCE_LANGUAGE=en-US
 DEFAULT_TARGET_LANGUAGE=es-ES
 DEFAULT_SOURCE_LABEL=English
 DEFAULT_TARGET_LABEL=Spanish
+DEFAULT_VOICE=alloy
+DEBUG=true
+LOG_LEVEL=INFO
+LOG_FORMAT=pretty
 ```
+
+Notes:
+
+- `OPENAI_API_KEY` is the only LLM provider key used by the current translation path.
+- `ANTHROPIC_API_KEY` is present in `.env.example` for future provider work, but the current code does not call Anthropic.
+- `LLM_MODEL` defaults to `gpt-4o-mini` in code when unset; `.env.example` pins `gpt-5-nano` for the demo configuration.
+- `TRANSLATION_WEBHOOK_AUTH_HEADER` accepts a single `Header-Name: value` string when an external webhook needs auth.
+- `SWML_BASIC_AUTH_USER` and `SWML_BASIC_AUTH_PASSWORD` are passed into the SignalWire agent setup; the current app override accepts inbound requests without enforcing Basic Auth.
 
 ## Architecture note
 
